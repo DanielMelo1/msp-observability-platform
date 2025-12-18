@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: msp-platform-ingress
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:509399596610:certificate/YOUR-CERT-ARN
+spec:
+  rules:
+  # Zabbix Frontend
+  - host: zabbix.msp-platform.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: zabbix-frontend
+            port:
+              number: 80
+  
+  # Cliente A (E-commerce)
+  - host: cliente-a.msp-platform.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cliente-a-service
+            port:
+              number: 80
+  
+  # Cliente B (Fintech)
+  - host: cliente-b.msp-platform.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cliente-b-service
+            port:
+              number: 80
+  
+  # Cliente C (SaaS)
+  - host: cliente-c.msp-platform.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cliente-c-service
+            port:
+              number: 80

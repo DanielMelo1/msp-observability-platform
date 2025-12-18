@@ -1,0 +1,71 @@
+====================================================
+MSP OBSERVABILITY PLATFORM - PROJECT STRUCTURE
+====================================================
+
+QUICK START:
+./scripts/setup.sh      # Deploy infrastructure
+./scripts/deploy.sh     # Deploy applications + monitoring
+./scripts/demo.sh       # Run demonstration
+
+====================================================
+
+PROJECT ROOT:
+├── README.md
+├── LICENSE
+├── .gitignore
+└── .env.example
+
+DOCUMENTATION (docs/):
+├── 00-WHY-3-CLIENTS.md
+├── 01-ARCHITECTURE.md
+├── 02-MSP-CONTEXT.md
+├── 03-SOLUTION.md
+├── 04-DEPLOYMENT.md
+├── 05-DEMO.md
+└── 06-TROUBLESHOOTING.md
+
+INFRASTRUCTURE (terraform/):
+├── modules/
+│   ├── networking/     # VPC, subnets, IGW, NAT
+│   ├── eks/            # EKS cluster, node groups
+│   └── namespaces/     # K8s namespace isolation
+└── environments/
+    └── dev/            # Development environment config
+
+KUBERNETES MANIFESTS (k8s/):
+├── zabbix/             # Monitoring infrastructure
+├── cliente-a/          # E-commerce (SLA 99%)
+├── cliente-b/          # Fintech (SLA 99.99%)
+├── cliente-c/          # SaaS (SLA 99.5%)
+└── monitoring/         # Automation services
+
+APPLICATIONS (app/):
+├── common/             # Shared configuration
+├── base-api/           # FastAPI template (multi-tenant)
+└── load-generator/     # Locust load testing
+
+ZABBIX CONFIGURATION (zabbix-config/):
+├── templates/          # SLA-specific monitoring templates
+├── dashboards/         # Client dashboards (JSON)
+├── automation/         # Auto-scaling + cost optimization
+└── scripts/            # Setup automation
+
+CI/CD (.github/workflows/):
+├── terraform-deploy.yml
+├── deploy-apps.yml
+└── deploy-zabbix.yml
+
+AUTOMATION (scripts/):
+├── setup.sh            # One-command infrastructure setup
+├── demo.sh             # Live demonstration
+├── load-test.sh        # Trigger load scenarios
+└── cleanup.sh          # Clean up resources
+
+====================================================
+CORE MODULES:
+- Infrastructure as Code (Terraform)
+- Multi-tenant Kubernetes (namespace isolation)
+- Zabbix 7.0 monitoring platform
+- SLA-based auto-scaling automation
+- Load testing scenarios (Locust)
+====================================================

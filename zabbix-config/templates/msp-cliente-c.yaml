@@ -1,0 +1,85 @@
+# Zabbix Template for Cliente C (SaaS)
+# SLA: 99.5% (3.6 hours downtime/month allowed)
+# Scaling: Cost-optimized (80% CPU, 10min window, off-hours scaling)
+
+template:
+  name: "MSP - Cliente C - SaaS"
+  description: "Monitoring template for SaaS client with cost optimization"
+  groups:
+    - name: "MSP Clients"
+  
+  items:
+    - name: "CPU Usage"
+      key: "system.cpu.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 60s
+      history: 7d
+      
+    - name: "Memory Usage"
+      key: "vm.memory.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 60s
+      history: 7d
+      
+    - name: "HTTP Response Time"
+      key: "web.response.time[http://cliente-c-api:8000/health]"
+      type: SIMPLE
+      value_type: FLOAT
+      units: "ms"
+      delay: 60s
+      history: 7d
+      
+    - name: "Pod Count"
+      key: "kubernetes.pods.count[cliente-c]"
+      type: ZABBIX_ACTIVE
+      value_type: UNSIGNED
+      delay: 60s
+      history: 7d
+  
+  triggers:
+    - name: "High CPU Usage - Cliente C"
+      expression: "avg(/cliente-c/system.cpu.util,10m) > 80"
+      severity: WARNING
+      description: "CPU usage above 80% for 10 minutes"
+      recovery_mode: RECOVERY_EXPRESSION
+      recovery_expression: "avg(/cliente-c/system.cpu.util,10m) < 70"
+      
+    - name: "High Response Time - Cliente C"
+      expression: "avg(/cliente-c/web.response.time,10m) > 3000"
+      severity: WARNING
+      description: "Response time above 3 seconds"
+
+  actions:
+    - name: "Scale Up Cliente C"
+      conditions:
+        - trigger: "High CPU Usage - Cliente C"
+          status: PROBLEM
+      operations:
+        - type: WEBHOOK
+          webhook_url: "http://webhook-handler.monitoring.svc.cluster.local:8080/trigger"
+          payload: |
+            {
+              "client": "cliente-c",
+              "namespace": "cliente-c",
+              "deployment": "cliente-c-api",
+              "metric": "cpu",
+              "action": "scale_up"
+            }
+            
+    - name: "Cost Optimization - Off Hours"
+      conditions:
+        - time: "20:00-08:00"
+      operations:
+        - type: WEBHOOK
+          webhook_url: "http://webhook-handler.monitoring.svc.cluster.local:8080/optimize"
+          payload: |
+            {
+              "client": "cliente-c",
+              "namespace": "cliente-c",
+              "deployment": "cliente-c-api",
+              "action": "scale_to_minimum"
+            }

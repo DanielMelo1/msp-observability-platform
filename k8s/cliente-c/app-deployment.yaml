@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cliente-c-api
+  namespace: cliente-c
+  labels:
+    app: cliente-c-api
+    client: cliente-c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cliente-c-api
+  template:
+    metadata:
+      labels:
+        app: cliente-c-api
+        client: cliente-c
+    spec:
+      containers:
+      - name: api
+        image: base-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: CLIENT_ID
+          value: "cliente-c"
+        - name: DATABASE_URL
+          value: "postgresql://app:app_password@postgres:5432/clientedb"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5

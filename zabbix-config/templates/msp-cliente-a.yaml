@@ -1,0 +1,83 @@
+# Zabbix Template for Cliente A (E-commerce)
+# SLA: 99% (7.2 hours downtime/month allowed)
+# Scaling: Conservative (75% CPU, 5min window)
+
+template:
+  name: "MSP - Cliente A - E-commerce"
+  description: "Monitoring template for e-commerce client with 99% SLA"
+  groups:
+    - name: "MSP Clients"
+  
+  items:
+    - name: "CPU Usage"
+      key: "system.cpu.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 60s
+      history: 7d
+      
+    - name: "Memory Usage"
+      key: "vm.memory.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 60s
+      history: 7d
+      
+    - name: "HTTP Response Time"
+      key: "web.response.time[http://cliente-a-api:8000/health]"
+      type: SIMPLE
+      value_type: FLOAT
+      units: "ms"
+      delay: 60s
+      history: 7d
+      
+    - name: "HTTP Requests Total"
+      key: "web.requests.total"
+      type: ZABBIX_ACTIVE
+      value_type: UNSIGNED
+      delay: 60s
+      history: 7d
+      
+    - name: "Pod Count"
+      key: "kubernetes.pods.count[cliente-a]"
+      type: ZABBIX_ACTIVE
+      value_type: UNSIGNED
+      delay: 60s
+      history: 7d
+  
+  triggers:
+    - name: "High CPU Usage - Cliente A"
+      expression: "avg(/cliente-a/system.cpu.util,5m) > 75"
+      severity: WARNING
+      description: "CPU usage above 75% for 5 minutes"
+      recovery_mode: RECOVERY_EXPRESSION
+      recovery_expression: "avg(/cliente-a/system.cpu.util,5m) < 65"
+      
+    - name: "High Response Time - Cliente A"
+      expression: "avg(/cliente-a/web.response.time,5m) > 2000"
+      severity: HIGH
+      description: "Response time above 2 seconds"
+      
+    - name: "Memory Usage Critical - Cliente A"
+      expression: "avg(/cliente-a/vm.memory.util,5m) > 85"
+      severity: HIGH
+      description: "Memory usage above 85%"
+
+  actions:
+    - name: "Scale Up Cliente A"
+      conditions:
+        - trigger: "High CPU Usage - Cliente A"
+          status: PROBLEM
+      operations:
+        - type: WEBHOOK
+          webhook_url: "http://webhook-handler.monitoring.svc.cluster.local:8080/trigger"
+          payload: |
+            {
+              "client": "cliente-a",
+              "namespace": "cliente-a",
+              "deployment": "cliente-a-api",
+              "metric": "cpu",
+              "action": "scale_up"
+            }

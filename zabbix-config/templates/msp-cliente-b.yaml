@@ -1,0 +1,84 @@
+# Zabbix Template for Cliente B (Fintech)
+# SLA: 99.99% (4 minutes downtime/month allowed)
+# Scaling: Aggressive (60% CPU, 2min window)
+
+template:
+  name: "MSP - Cliente B - Fintech"
+  description: "Monitoring template for fintech client with 99.99% SLA (CRITICAL)"
+  groups:
+    - name: "MSP Clients"
+  
+  items:
+    - name: "CPU Usage"
+      key: "system.cpu.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 30s
+      history: 30d
+      
+    - name: "Memory Usage"
+      key: "vm.memory.util"
+      type: ZABBIX_ACTIVE
+      value_type: FLOAT
+      units: "%"
+      delay: 30s
+      history: 30d
+      
+    - name: "HTTP Response Time"
+      key: "web.response.time[http://cliente-b-api:8000/health]"
+      type: SIMPLE
+      value_type: FLOAT
+      units: "ms"
+      delay: 30s
+      history: 30d
+      
+    - name: "HTTP Requests Total"
+      key: "web.requests.total"
+      type: ZABBIX_ACTIVE
+      value_type: UNSIGNED
+      delay: 30s
+      history: 30d
+      
+    - name: "Pod Count"
+      key: "kubernetes.pods.count[cliente-b]"
+      type: ZABBIX_ACTIVE
+      value_type: UNSIGNED
+      delay: 30s
+      history: 30d
+  
+  triggers:
+    - name: "High CPU Usage - Cliente B"
+      expression: "avg(/cliente-b/system.cpu.util,2m) > 60"
+      severity: HIGH
+      description: "CPU usage above 60% for 2 minutes (CRITICAL SLA)"
+      recovery_mode: RECOVERY_EXPRESSION
+      recovery_expression: "avg(/cliente-b/system.cpu.util,2m) < 50"
+      
+    - name: "High Response Time - Cliente B"
+      expression: "avg(/cliente-b/web.response.time,2m) > 200"
+      severity: DISASTER
+      description: "Response time above 200ms (CRITICAL SLA)"
+      
+    - name: "Memory Usage Critical - Cliente B"
+      expression: "avg(/cliente-b/vm.memory.util,2m) > 80"
+      severity: DISASTER
+      description: "Memory usage above 80% (CRITICAL)"
+
+  actions:
+    - name: "Scale Up Cliente B (URGENT)"
+      conditions:
+        - trigger: "High CPU Usage - Cliente B"
+          status: PROBLEM
+      operations:
+        - type: WEBHOOK
+          webhook_url: "http://webhook-handler.monitoring.svc.cluster.local:8080/trigger"
+          payload: |
+            {
+              "client": "cliente-b",
+              "namespace": "cliente-b",
+              "deployment": "cliente-b-api",
+              "metric": "cpu",
+              "action": "scale_up",
+              "priority": "high"
+            }

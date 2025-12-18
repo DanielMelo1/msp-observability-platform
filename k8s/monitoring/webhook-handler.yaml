@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: webhook-handler
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deployment-scaler
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "patch", "update"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: webhook-handler-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: deployment-scaler
+subjects:
+- kind: ServiceAccount
+  name: webhook-handler
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webhook-config
+  namespace: monitoring
+data:
+  config.yaml: |
+    scaling_policies:
+      cliente-a:
+        min_replicas: 2
+        max_replicas: 8
+        scale_up_increment: 1
+        cooldown_seconds: 300
+      cliente-b:
+        min_replicas: 5
+        max_replicas: 20
+        scale_up_increment: 2
+        cooldown_seconds: 120
+      cliente-c:
+        min_replicas: 1
+        max_replicas: 4
+        scale_up_increment: 1
+        cooldown_seconds: 600
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-handler
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhook-handler
+  template:
+    metadata:
+      labels:
+        app: webhook-handler
+    spec:
+      serviceAccountName: webhook-handler
+      containers:
+      - name: handler
+        image: webhook-handler:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: LOG_LEVEL
+          value: "INFO"
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: webhook-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-handler
+  namespace: monitoring
+spec:
+  selector:
+    app: webhook-handler
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  type: ClusterIP
