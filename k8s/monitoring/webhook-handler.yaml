@@ -71,7 +71,7 @@ spec:
       serviceAccountName: webhook-handler
       containers:
       - name: handler
-        image: webhook-handler:latest
+        image: ghcr.io/danielmelo1/webhook-handler:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080

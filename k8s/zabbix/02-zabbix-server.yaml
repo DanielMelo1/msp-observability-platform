@@ -18,33 +18,24 @@ spec:
         image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
         ports:
         - containerPort: 10051
-          name: zabbix-trapper
         env:
         - name: DB_SERVER_HOST
-          value: postgres
+          value: "postgres"
+        - name: DB_SERVER_PORT
+          value: "5432"
         - name: POSTGRES_DB
-          value: zabbix
+          value: "zabbix"
         - name: POSTGRES_USER
-          value: zabbix
+          value: "zabbix"
         - name: POSTGRES_PASSWORD
-          value: zabbix_password
+          value: "zabbix_password"
         resources:
           requests:
-            cpu: 500m
-            memory: 1Gi
+            memory: "1Gi"
+            cpu: "500m"
           limits:
-            cpu: 2000m
-            memory: 4Gi
-        livenessProbe:
-          tcpSocket:
-            port: 10051
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          tcpSocket:
-            port: 10051
-          initialDelaySeconds: 15
-          periodSeconds: 5
+            memory: "2Gi"
+            cpu: "1000m"
 ---
 apiVersion: v1
 kind: Service
@@ -52,10 +43,9 @@ metadata:
   name: zabbix-server
   namespace: monitoring
 spec:
-  selector:
-    app: zabbix-server
   ports:
   - port: 10051
     targetPort: 10051
-    name: zabbix-trapper
+  selector:
+    app: zabbix-server
   type: ClusterIP

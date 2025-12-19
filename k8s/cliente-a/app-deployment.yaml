@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: base-api:latest
+        image: ghcr.io/danielmelo1/base-api:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000

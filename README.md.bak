@@ -128,36 +128,31 @@ Traditional monitoring solutions treat all clients equally. This platform demons
 ### Prerequisites
 
 - AWS Account with EKS permissions
-- Terraform >= 1.0
-- kubectl >= 1.28
-- AWS CLI >= 2.0 configured
-- Helm >= 3.0
-- Docker >= 20.0
+- Terraform >= 1.9
+- kubectl >= 1.31
+- AWS CLI configured
+- Docker (for local testing)
 
 ### Deploy Complete Platform
 ```bash
-# 1. Clone repository
-git clone https://github.com/DanielMelo1/msp-observability-platform.git
-cd msp-observability-platform
-
-# 2. Deploy infrastructure and applications
+# 1. Deploy infrastructure (VPC, EKS, namespaces)
 ./scripts/setup.sh
 
-# 3. Access Zabbix
-kubectl port-forward -n monitoring svc/zabbix-frontend 8080:80
-# Open: http://localhost:8080
-# Login: Admin / zabbix
+# 2. Deploy applications and Zabbix monitoring
+./scripts/deploy.sh
+
+# 3. Run demonstration (load test + watch auto-scaling)
+./scripts/demo.sh
 ```
 
-### Clean Up
+### Access Zabbix Dashboard
 ```bash
-# Delete all resources
-cd terraform/environments/dev
-kubectl delete pvc --all -n cliente-a
-kubectl delete pvc --all -n cliente-b
-kubectl delete pvc --all -n cliente-c
-kubectl delete pvc --all -n monitoring
-terraform destroy -auto-approve
+# Get Zabbix URL
+kubectl get svc -n zabbix zabbix-frontend
+
+# Default credentials
+Username: Admin
+Password: zabbix
 ```
 
 ---
@@ -195,20 +190,15 @@ terraform destroy -auto-approve
 ```
 msp-observability-platform/
 ├── docs/                        # Technical documentation
-│   ├── DEPLOYMENT.md            # Complete deployment guide
-│   └── screenshots/             # 15 deployment evidence images
 ├── terraform/                   # Infrastructure as Code
 │   ├── modules/                 # Reusable Terraform modules
-│   │   ├── networking/          # VPC, subnets, NAT
-│   │   ├── eks/                 # EKS cluster
-│   │   └── namespaces/          # K8s namespaces
 │   └── environments/dev/        # Environment-specific config
 ├── k8s/                         # Kubernetes manifests
-│   ├── zabbix/                  # Zabbix monitoring stack
+│   ├── zabbix/                  # Monitoring infrastructure
 │   ├── cliente-a/               # E-commerce namespace
 │   ├── cliente-b/               # Fintech namespace
 │   ├── cliente-c/               # SaaS namespace
-│   └── monitoring/              # Webhook handler
+│   └── monitoring/              # Automation services
 ├── app/                         # Application code
 │   ├── common/                  # Shared configuration
 │   ├── base-api/                # FastAPI template
@@ -216,10 +206,9 @@ msp-observability-platform/
 ├── zabbix-config/               # Zabbix configuration
 │   ├── templates/               # SLA-specific templates
 │   ├── dashboards/              # Monitoring dashboards
-│   ├── automation/              # Auto-scaling webhooks
+│   ├── automation/              # Auto-scaling scripts
 │   └── scripts/                 # Setup automation
 └── scripts/                     # Deployment automation
-    └── setup.sh                 # Complete deployment script
 ```
 
 ---
@@ -228,32 +217,28 @@ msp-observability-platform/
 
 ### 1. Multi-Tenant Isolation
 - Each client runs in dedicated Kubernetes namespace
-- Separate resource quotas and limits (LimitRange, ResourceQuota)
-- Network policies for inter-namespace communication
+- Separate resource quotas and limits
 - Isolated monitoring templates and dashboards
 
 ### 2. SLA-Aware Monitoring
 - Different Zabbix triggers per SLA level
 - Critical clients (99.99%) get more aggressive thresholds
 - Non-critical clients (99%) have relaxed thresholds
-- Custom dashboards per client
 
 ### 3. Automated Scaling
 - Webhook-driven auto-scaling based on Zabbix triggers
-- HPA (Horizontal Pod Autoscaler) with Metrics Server
 - No manual intervention required
 - Scales both up and down based on load
 
 ### 4. Cost Optimization
 - Cliente C automatically scales down during off-hours
 - Saves ~60% compute costs for non-critical workloads
-- Scheduling logic configurable per client
+- Scheduling logic in `zabbix-config/automation/cost-optimizer.py`
 
-### 5. Production-Ready Infrastructure
-- AWS EKS with managed control plane
-- Multi-AZ deployment for high availability
-- EBS CSI Driver with IRSA for persistent storage
-- AWS Load Balancer Controller for Ingress
+### 5. Self-Healing
+- Failed pods automatically restarted by Kubernetes
+- High CPU triggers auto-scaling before incidents
+- Proactive monitoring prevents outages
 
 ---
 
@@ -262,87 +247,30 @@ msp-observability-platform/
 **Infrastructure:**
 - AWS EKS (Kubernetes 1.31)
 - Terraform (Infrastructure as Code)
-- VPC with public/private subnets across 3 AZs
-- NAT Gateways for private subnet internet access
+- VPC with public/private subnets
 
 **Monitoring:**
 - Zabbix 7.0 (Server + Frontend)
-- PostgreSQL 15 (Zabbix database with subPath configuration)
-- Zabbix Agents (DaemonSet on all nodes)
+- PostgreSQL 15 (Zabbix database)
+- Zabbix Agents (DaemonSet)
 
 **Applications:**
 - Python 3.12 + FastAPI
 - Gunicorn (production WSGI)
 - PostgreSQL (application databases)
 
-**Kubernetes Addons:**
-- AWS Load Balancer Controller
-- EBS CSI Driver (with IRSA)
-- Metrics Server (for HPA)
-
 **Automation:**
-- Python webhook handlers
+- Python scripts (webhook handlers)
 - kubectl (Kubernetes API)
-- Slack webhooks (optional alerting)
+- Slack webhooks (alerting)
 
-**Container Registry:**
-- GitHub Container Registry (GHCR)
-- Public images - no authentication needed
+**Load Testing:**
+- Locust (load generation)
+- Scenario-based traffic patterns
 
----
-
-## Docker Images
-
-### Pre-built Images (GitHub Container Registry)
-
-This project uses pre-built Docker images hosted on GitHub Container Registry (GHCR):
-
-- `ghcr.io/danielmelo1/base-api:latest` - Multi-tenant FastAPI application
-- `ghcr.io/danielmelo1/webhook-handler:latest` - Zabbix webhook handler
-
-These images are **publicly available** - you don't need Docker Hub or any registry account to deploy this project.
-
-### Building Your Own Images
-
-If you want to customize and build your own images:
-```bash
-# 1. Build images locally
-docker build -t base-api:latest -f app/base-api/Dockerfile app/
-docker build -t webhook-handler:latest -f zabbix-config/automation/Dockerfile zabbix-config/automation/
-
-# 2. Tag for your registry (GitHub Container Registry example)
-docker tag base-api:latest ghcr.io/YOUR_USERNAME/base-api:latest
-docker tag webhook-handler:latest ghcr.io/YOUR_USERNAME/webhook-handler:latest
-
-# 3. Login to GHCR
-docker login ghcr.io
-# Username: YOUR_GITHUB_USERNAME
-# Password: YOUR_GITHUB_TOKEN (with write:packages scope)
-
-# 4. Push images
-docker push ghcr.io/YOUR_USERNAME/base-api:latest
-docker push ghcr.io/YOUR_USERNAME/webhook-handler:latest
-
-# 5. Update Kubernetes manifests
-# Edit k8s/cliente-a/app-deployment.yaml
-# Edit k8s/cliente-b/app-deployment.yaml
-# Edit k8s/cliente-c/app-deployment.yaml
-# Edit k8s/monitoring/webhook-handler.yaml
-# Replace: ghcr.io/danielmelo1 with ghcr.io/YOUR_USERNAME
-```
-
-### Making Images Public on GHCR
-
-After pushing images to GHCR:
-
-1. Go to https://github.com/YOUR_USERNAME?tab=packages
-2. Click on the package (base-api or webhook-handler)
-3. Go to "Package settings"
-4. Scroll to "Danger Zone"
-5. Click "Change visibility" → Select "Public"
-6. Confirm by typing the package name
-
-This allows others to use your images without authentication.
+**CI/CD:**
+- GitHub Actions
+- Automated deployment pipelines
 
 ---
 
@@ -350,87 +278,50 @@ This allows others to use your images without authentication.
 
 Comprehensive documentation is available in the `docs/` directory:
 
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Complete deployment guide with:
-  - Prerequisites and AWS account setup
-  - Step-by-step deployment instructions
-  - EBS CSI Driver IRSA configuration
-  - PostgreSQL subPath configuration details
-  - Troubleshooting guide for common issues
-  - Clean destruction process
-
-- **[screenshots/](docs/screenshots/)** - 15 deployment evidence images:
-  - AWS infrastructure (EKS cluster, EC2 nodes)
-  - Kubernetes resources (nodes, pods, HPA)
-  - Zabbix monitoring (dashboard, hosts, templates, items, problems)
-  - Auto-scaling demonstration (before/after load test)
+- **[00-WHY-3-CLIENTS.md](docs/00-WHY-3-CLIENTS.md)** - Why this approach is not over-engineering
+- **[01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md)** - Detailed technical architecture
+- **[02-MSP-CONTEXT.md](docs/02-MSP-CONTEXT.md)** - MSP business context
+- **[03-SOLUTION.md](docs/03-SOLUTION.md)** - How this solves MSP challenges
+- **[04-DEPLOYMENT.md](docs/04-DEPLOYMENT.md)** - Step-by-step deployment guide
+- **[05-DEMO.md](docs/05-DEMO.md)** - Running the demonstration
+- **[06-TROUBLESHOOTING.md](docs/06-TROUBLESHOOTING.md)** - Common issues and solutions
 
 ---
 
-## Frequently Asked Questions
+## FAQ
 
 ### Why 3 clients? Isn't that over-engineering?
 
 No. This simulates a real MSP scenario where you manage multiple clients with different requirements. A single-client demo wouldn't demonstrate:
-- **Multi-tenant isolation** (namespaces, resource quotas)
-- **SLA-specific thresholds** (different triggers per client criticality)
-- **Differential auto-scaling policies** (aggressive vs conservative)
-- **Selective cost optimization** (off-hours scaling for specific clients)
+- Multi-tenant isolation (namespaces)
+- SLA-specific thresholds
+- Differential auto-scaling policies
+- Selective cost optimization
 
 The structure is modular - adding a 4th client takes ~10 minutes.
 
 ### Why not use Prometheus + Grafana instead of Zabbix?
 
-This project specifically demonstrates Zabbix expertise. The architecture patterns (multi-tenancy, SLA-aware monitoring, webhook automation) would work equally well with Prometheus/Grafana, but Zabbix provides:
-- Built-in alerting and webhook actions (no Alertmanager needed)
-- Mature auto-discovery for large infrastructures
-- Traditional MSP monitoring workflows
+This project specifically demonstrates Zabbix expertise (required for the role). The architecture patterns would work equally well with Prometheus/Grafana.
 
 ### Is this production-ready?
 
-The code quality and architecture are production-ready. For actual production deployment, you should add:
-- **Secrets management** (AWS Secrets Manager or HashiCorp Vault)
-- **TLS/SSL certificates** (AWS ACM + cert-manager)
-- **Backup/restore automation** (Velero for Kubernetes, AWS Backup for databases)
-- **Network policies enforcement** (Calico or Cilium)
-- **Comprehensive logging** (Fluent Bit + CloudWatch or ELK stack)
-- **GitOps workflow** (ArgoCD or Flux)
-
-The current setup is ideal for:
-- Technical demonstrations
-- Proof of concepts
-- Development/staging environments
-- Learning and experimentation
+The code quality and architecture are production-ready. For actual production:
+- Add proper secrets management (AWS Secrets Manager)
+- Implement proper TLS/SSL
+- Add network policies
+- Implement backup/restore procedures
+- Add proper logging aggregation
 
 ### How much does this cost to run?
 
-Estimated monthly costs (us-east-1):
-- **EKS Cluster:** ~$73/month
-- **3× t3.medium nodes:** ~$90/month
-- **NAT Gateways (3):** ~$32/month
-- **Application Load Balancer:** ~$16/month
-- **EBS Volumes (4× 20GB):** ~$8/month
+Approximately $150-200/month on AWS:
+- EKS cluster: ~$75/month
+- 3x t3.medium nodes: ~$90/month
+- Load balancers: ~$20/month
+- Data transfer: ~$10/month
 
-**Total: ~$219/month** (~$7/day)
-
-**Cost optimization tips:**
-- Use `terraform destroy` after testing to avoid charges
-- Consider smaller instance types (t3.small) for non-production
-- Reduce NAT Gateways to 1 for dev environments
-- Use Spot Instances for non-critical workloads
-
-### Can I use this for my own MSP business?
-
-Yes! This project is MIT licensed. You can:
-- Use it as-is for your MSP operations
-- Customize for your specific clients
-- Extend with additional monitoring tools
-- Integrate with your existing workflows
-
-Just remember to:
-- Replace placeholder credentials with proper secrets management
-- Implement production-grade security (TLS, network policies)
-- Add compliance requirements specific to your industry
-- Test thoroughly before production use
+Use `./scripts/cleanup.sh` to destroy everything when done testing.
 
 ---
 
@@ -439,10 +330,9 @@ Just remember to:
 This is a demonstration project for showcasing technical skills. However, improvements are welcome:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch
 3. Make your changes with clear commit messages
-4. Test your changes thoroughly
-5. Submit a pull request
+4. Submit a pull request
 
 ---
 
@@ -454,23 +344,58 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Author
 
-**Daniel Melo**  
+**Daniel Melo**
 DevOps/SRE Engineer
 
-- GitHub: [@DanielMelo1](https://github.com/DanielMelo1)
-- Project: [msp-observability-platform](https://github.com/DanielMelo1/msp-observability-platform)
-
 Created as a technical demonstration project showcasing:
-- Multi-tenant Zabbix monitoring architecture
-- AWS EKS infrastructure management with Terraform
-- Kubernetes automation and auto-scaling
-- SLA-aware observability patterns
-- Cost optimization strategies for MSPs
+- Multi-tenant Zabbix monitoring
+- AWS EKS infrastructure management
+- Kubernetes automation
+- SLA-aware observability
+- Cost optimization strategies
 
 ---
 
 ## Acknowledgments
 
-This project demonstrates real-world MSP challenges and solutions, inspired by the operational needs of Managed Service Providers managing multiple client infrastructures on AWS with varying SLA requirements and cost constraints.
+This project demonstrates real-world MSP challenges and solutions, inspired by the operational needs of Managed Service Providers managing multiple client infrastructures on AWS.
 
-The architecture patterns and best practices shown here are applicable to production MSP environments and can be adapted for various cloud providers and monitoring solutions.
+---
+
+## Frequently Asked Questions
+
+### Why 3 clients instead of just 1?
+
+This demonstrates real MSP operational patterns. A single-client demo cannot show:
+- **Multi-tenant isolation** (namespace separation, resource quotas)
+- **SLA differentiation** (different thresholds per client criticality)
+- **Cost optimization** (selective off-hours scaling)
+- **Differential scaling** (aggressive vs conservative policies)
+
+The architecture is modular - adding a 4th client takes ~10 minutes of configuration.
+
+### Is this production-ready?
+
+The code quality and architecture are production-ready. For actual production deployment, add:
+- Secrets management (AWS Secrets Manager)
+- TLS/SSL certificates (AWS ACM)
+- Backup/restore automation
+- Network policies enforcement
+- Comprehensive logging
+
+### How much does this cost to run?
+
+Approximately $8/day (~$240/month):
+- EKS control plane: $73/month
+- 3× t3.medium nodes: $90/month
+- EBS storage: $6/month
+- ALB: $16/month
+- NAT Gateway: $32/month
+- Data transfer: ~$10/month
+
+Use `terraform destroy` after testing to avoid charges.
+
+### Why Zabbix instead of Prometheus/Grafana?
+
+Zabbix provides built-in alerting and webhook actions without additional components (Alertmanager). For this use case (traditional MSP monitoring with trigger-based automation), Zabbix is simpler and more mature.
+

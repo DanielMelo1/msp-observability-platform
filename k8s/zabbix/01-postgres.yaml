@@ -6,10 +6,10 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: gp2
   resources:
     requests:
       storage: 20Gi
-  storageClassName: gp2
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -32,28 +32,35 @@ spec:
         image: postgres:15-alpine
         ports:
         - containerPort: 5432
-          name: postgres
         env:
         - name: POSTGRES_DB
-          value: zabbix
+          value: "zabbix"
         - name: POSTGRES_USER
-          value: zabbix
+          value: "zabbix"
         - name: POSTGRES_PASSWORD
-          value: zabbix_password
+          value: "zabbix_password"
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
+          subPath: pgdata
         resources:
           requests:
-            cpu: 500m
-            memory: 1Gi
+            memory: "512Mi"
+            cpu: "250m"
           limits:
-            cpu: 1000m
-            memory: 2Gi
-      volumes:
-      - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres-pvc
+            memory: "1Gi"
+            cpu: "500m"
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: gp2
+      resources:
+        requests:
+          storage: 20Gi
 ---
 apiVersion: v1
 kind: Service
@@ -61,9 +68,9 @@ metadata:
   name: postgres
   namespace: monitoring
 spec:
-  selector:
-    app: postgres
   ports:
   - port: 5432
     targetPort: 5432
-  type: ClusterIP
+  selector:
+    app: postgres
+  clusterIP: None

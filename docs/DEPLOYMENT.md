@@ -303,3 +303,221 @@ terraform destroy -auto-approve
 
 **Deployment time:** ~30 minutes
 **Last Updated:** December 2025
+
+## Prerequisites
+
+### AWS Account Requirements
+
+- AWS Account with appropriate permissions
+- AWS CLI configured with credentials
+- Permissions needed:
+  - EKS: Full access
+  - EC2: Full access
+  - VPC: Full access
+  - IAM: Create roles and policies
+  - EBS: Create and manage volumes
+
+### Required Tools
+
+- Terraform >= 1.0
+- kubectl >= 1.28
+- AWS CLI >= 2.0
+- Helm >= 3.0
+- Docker >= 20.0
+
+### AWS EKS Addons
+
+The following addons are automatically configured during deployment:
+
+1. **AWS Load Balancer Controller**: Manages ALB/NLB for Ingress resources
+2. **EBS CSI Driver**: Enables dynamic PersistentVolume provisioning with EBS
+3. **Metrics Server**: Provides resource metrics for HPA
+
+## Important Notes
+
+### EBS CSI Driver IRSA
+
+The EBS CSI Driver requires IAM Roles for Service Accounts (IRSA) to manage EBS volumes. This is automatically configured in the setup script:
+
+- Creates OIDC provider for the cluster
+- Creates IAM role: `AmazonEKS_EBS_CSI_DriverRole`
+- Attaches policy: `AmazonEKS_EBS_CSI_Driver_Policy`
+- Annotates service account: `ebs-csi-controller-sa`
+
+### PostgreSQL Storage
+
+PostgreSQL uses EBS volumes with the `subPath` configuration to avoid conflicts with the `lost+found` directory that exists in new EBS volumes.
+
+Configuration:
+```yaml
+volumeMounts:
+- name: postgres-storage
+  mountPath: /var/lib/postgresql/data
+  subPath: pgdata  # Important: avoids lost+found conflict
+env:
+- name: PGDATA
+  value: "/var/lib/postgresql/data/pgdata"
+```
+
+### Zabbix Server Resources
+
+The Zabbix Server memory limit is set to 2Gi to comply with the namespace LimitRange:
+```yaml
+resources:
+  limits:
+    memory: "2Gi"  # Must be <= namespace limit (2Gi)
+    cpu: "1000m"
+```
+
+## Troubleshooting
+
+### Issue: Pods stuck in ImagePullBackOff
+
+**Symptom:**
+```
+cliente-a-api-xxx   0/1   ImagePullBackOff
+```
+
+**Cause:** Docker images not accessible
+
+**Solution:**
+1. Verify images are public on GHCR
+2. Or build and push your own images
+3. Update image references in Kubernetes manifests
+
+### Issue: PersistentVolumeClaims stuck in Pending
+
+**Symptom:**
+```
+postgres-pvc   Pending   gp2
+```
+
+**Cause:** EBS CSI Driver not properly configured
+
+**Solution:**
+```bash
+# Check EBS CSI controller pods
+kubectl get pods -n kube-system | grep ebs-csi
+
+# If controllers are CrashLoopBackOff, check IRSA configuration
+kubectl logs -n kube-system ebs-csi-controller-xxx -c ebs-plugin
+
+# Verify service account annotation
+kubectl describe sa ebs-csi-controller-sa -n kube-system | grep eks.amazonaws.com/role-arn
+
+# Should show: arn:aws:iam::ACCOUNT_ID:role/AmazonEKS_EBS_CSI_DriverRole
+```
+
+### Issue: HPA shows "unknown" for CPU metrics
+
+**Symptom:**
+```
+cliente-a-hpa   cpu: <unknown>/75%
+```
+
+**Cause:** Metrics Server not installed or not ready
+
+**Solution:**
+```bash
+# Check metrics-server
+kubectl get pods -n kube-system | grep metrics-server
+
+# If not present, install:
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# Wait 1-2 minutes, then check again
+kubectl top nodes
+kubectl top pods -n cliente-a
+```
+
+### Issue: PostgreSQL fails to start with "directory not empty"
+
+**Symptom:**
+```
+initdb: error: directory "/var/lib/postgresql/data" exists but is not empty
+```
+
+**Cause:** Missing `subPath` configuration in volumeMount
+
+**Solution:**
+Already fixed in `k8s/zabbix/01-postgres.yaml`. Ensure you're using the latest version with:
+- `subPath: pgdata` in volumeMount
+- `PGDATA=/var/lib/postgresql/data/pgdata` environment variable
+
+### Issue: Zabbix Server pod fails to start (memory limit)
+
+**Symptom:**
+```
+Error creating: pods "zabbix-server-xxx" is forbidden: maximum memory usage per Container is 2Gi, but limit is 4Gi
+```
+
+**Cause:** Memory limit exceeds namespace LimitRange
+
+**Solution:**
+Already fixed in `k8s/zabbix/02-zabbix-server.yaml`. Memory limit set to 2Gi.
+
+### Issue: Terraform destroy hangs on namespace deletion
+
+**Symptom:**
+```
+module.namespaces.kubernetes_namespace.namespaces["monitoring"]: Still destroying... [5m0s elapsed]
+Error: context deadline exceeded
+```
+
+**Cause:** PersistentVolumeClaims with finalizers blocking namespace deletion
+
+**Solution:**
+```bash
+# 1. Delete PVCs first
+kubectl delete pvc --all -n cliente-a --wait=false
+kubectl delete pvc --all -n cliente-b --wait=false
+kubectl delete pvc --all -n cliente-c --wait=false
+kubectl delete pvc --all -n monitoring --wait=false
+
+# 2. If namespaces still stuck, remove from Terraform state
+terraform state rm 'module.namespaces.kubernetes_namespace.namespaces["cliente-a"]'
+terraform state rm 'module.namespaces.kubernetes_namespace.namespaces["cliente-b"]'
+terraform state rm 'module.namespaces.kubernetes_namespace.namespaces["cliente-c"]'
+terraform state rm 'module.namespaces.kubernetes_namespace.namespaces["monitoring"]'
+
+# 3. Destroy remaining resources
+terraform destroy -auto-approve
+```
+
+## Clean Destruction Process
+
+To avoid issues during infrastructure destruction, follow this order:
+```bash
+# 1. Delete PersistentVolumeClaims (releases EBS volumes)
+kubectl delete pvc --all -n cliente-a
+kubectl delete pvc --all -n cliente-b
+kubectl delete pvc --all -n cliente-c
+kubectl delete pvc --all -n monitoring
+
+# 2. Wait for volumes to be released (1 minute)
+sleep 60
+
+# 3. Run Terraform destroy
+cd terraform/environments/dev
+terraform destroy -auto-approve
+```
+
+This ensures EBS volumes are properly deleted before the EKS cluster is destroyed, preventing orphaned resources.
+
+## Cost Optimization
+
+Estimated monthly costs (us-east-1):
+- EKS Cluster: ~$73/month
+- 3x t3.medium nodes: ~$90/month
+- NAT Gateways (3): ~$32/month
+- Application Load Balancer: ~$16/month
+- EBS Volumes (4x 20GB): ~$8/month
+
+**Total: ~$219/month**
+
+To minimize costs during testing:
+1. Destroy infrastructure when not in use
+2. Use smaller instance types for testing
+3. Reduce number of NAT Gateways to 1
+4. Consider using t3.small instead of t3.medium
+
