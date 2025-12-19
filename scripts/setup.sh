@@ -24,6 +24,7 @@ command -v terraform >/dev/null 2>&1 || { echo -e "${RED}ERROR: terraform not in
 command -v kubectl >/dev/null 2>&1 || { echo -e "${RED}ERROR: kubectl not installed${NC}"; exit 1; }
 command -v aws >/dev/null 2>&1 || { echo -e "${RED}ERROR: aws cli not installed${NC}"; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo -e "${RED}ERROR: helm not installed${NC}"; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo -e "${RED}ERROR: docker not installed${NC}"; exit 1; }
 
 echo -e "${GREEN}✓ All prerequisites installed${NC}"
 echo ""
@@ -59,9 +60,12 @@ terraform apply -auto-approve
 terraform output -json > outputs.json
 CLUSTER_NAME=$(terraform output -raw cluster_name)
 REGION=$(terraform output -raw aws_region 2>/dev/null || echo "us-east-1")
+VPC_ID=$(terraform output -raw vpc_id)
 
 echo -e "${GREEN}✓ Infrastructure deployed${NC}"
 echo ""
+
+cd ../../..
 
 # Configure kubectl
 echo "=========================================="
@@ -81,24 +85,33 @@ echo "=========================================="
 helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 helm repo update
 
+# Uninstall if exists
+helm uninstall aws-load-balancer-controller -n kube-system 2>/dev/null || true
+sleep 10
+
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
   --set clusterName=$CLUSTER_NAME \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=$REGION \
+  --set vpcId=$VPC_ID \
+  --timeout 10m \
   --wait
 
 echo -e "${GREEN}✓ Load Balancer Controller installed${NC}"
 echo ""
-
-cd ../../..
 
 # Build Docker images
 echo "=========================================="
 echo "Step 4: Building Docker Images"
 echo "=========================================="
 
-docker build -t base-api:latest -f app/base-api/Dockerfile app/
+echo "Building base-api..."
+docker build -t base-api:latest -f app/base-api/Dockerfile app/ || { echo -e "${RED}ERROR: Failed to build base-api${NC}"; exit 1; }
+
+echo "Building webhook-handler..."
+docker build -t webhook-handler:latest -f zabbix-config/automation/Dockerfile zabbix-config/automation/ || { echo -e "${RED}ERROR: Failed to build webhook-handler${NC}"; exit 1; }
 
 echo -e "${GREEN}✓ Docker images built${NC}"
 echo ""
@@ -111,13 +124,16 @@ echo "=========================================="
 echo "Deploying Zabbix monitoring..."
 kubectl apply -f k8s/zabbix/
 
-echo "Waiting for Zabbix to be ready..."
-kubectl wait --for=condition=ready pod -l app=zabbix-server -n monitoring --timeout=300s
+echo "Waiting for Zabbix to be ready (this may take 2-3 minutes)..."
+kubectl wait --for=condition=ready pod -l app=zabbix-server -n monitoring --timeout=300s 2>/dev/null || echo -e "${YELLOW}Note: Zabbix may still be starting${NC}"
 
 echo "Deploying client applications..."
 kubectl apply -f k8s/cliente-a/
 kubectl apply -f k8s/cliente-b/
 kubectl apply -f k8s/cliente-c/
+
+echo "Deploying monitoring services..."
+kubectl apply -f k8s/monitoring/
 
 echo -e "${GREEN}✓ Applications deployed${NC}"
 echo ""
@@ -146,12 +162,16 @@ echo "=========================================="
 echo ""
 echo "Cluster: $CLUSTER_NAME"
 echo "Region: $REGION"
+echo "VPC: $VPC_ID"
 echo ""
-echo "Next steps:"
-echo "  1. Configure /etc/hosts (if ALB is ready):"
-echo "     sudo bash -c 'echo \"<ALB_IP> cliente-a.msp-demo.local\" >> /etc/hosts'"
-echo "  2. Access Zabbix: http://zabbix.msp-demo.local"
-echo "  3. Run demo: ./scripts/demo.sh"
+echo "Check application status:"
+echo "  kubectl get pods -A"
+echo "  kubectl get ingress -A"
+echo ""
+echo "Access Zabbix:"
+echo "  kubectl port-forward -n monitoring svc/zabbix-frontend 8080:80"
+echo "  Then open: http://localhost:8080"
+echo "  Login: Admin / zabbix"
 echo ""
 echo "To destroy everything: ./scripts/cleanup.sh"
 echo ""
