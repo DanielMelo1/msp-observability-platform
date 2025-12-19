@@ -8,7 +8,7 @@ Production-ready Zabbix monitoring solution for Managed Service Providers managi
 
 ### The Real-World Problem
 
-Managed Service Providers (MSPs) like **CDD IT** face a unique operational challenge when managing cloud infrastructure for multiple clients simultaneously. Each client has:
+Managed Service Providers (MSPs), face a unique operational challenge when managing cloud infrastructure for multiple clients simultaneously. Each client has:
 
 - **Different SLA requirements** (99%, 99.9%, 99.99%)
 - **Different budget constraints** (cost optimization is critical)
