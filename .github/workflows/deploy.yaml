@@ -1,0 +1,104 @@
+name: Deploy to EKS
+
+# This workflow is commented as a template
+# Uncomment and configure when ready for automated deployments
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+# Uncomment to enable
+# env:
+#   AWS_REGION: us-east-1
+#   CLUSTER_NAME: msp-observability-dev-cluster
+
+jobs:
+  # deploy-infrastructure:
+  #   name: Deploy Infrastructure
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ github.event.inputs.environment }}
+  #   
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+  #   
+  #   - name: Configure AWS credentials
+  #     uses: aws-actions/configure-aws-credentials@v4
+  #     with:
+  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #       aws-region: ${{ env.AWS_REGION }}
+  #   
+  #   - name: Setup Terraform
+  #     uses: hashicorp/setup-terraform@v3
+  #   
+  #   - name: Terraform Init
+  #     run: |
+  #       cd terraform/environments/${{ github.event.inputs.environment }}
+  #       terraform init
+  #   
+  #   - name: Terraform Plan
+  #     run: |
+  #       cd terraform/environments/${{ github.event.inputs.environment }}
+  #       terraform plan -out=tfplan
+  #   
+  #   - name: Terraform Apply
+  #     run: |
+  #       cd terraform/environments/${{ github.event.inputs.environment }}
+  #       terraform apply -auto-approve tfplan
+
+  # deploy-applications:
+  #   name: Deploy Applications
+  #   runs-on: ubuntu-latest
+  #   needs: deploy-infrastructure
+  #   environment: ${{ github.event.inputs.environment }}
+  #   
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+  #   
+  #   - name: Configure AWS credentials
+  #     uses: aws-actions/configure-aws-credentials@v4
+  #     with:
+  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #       aws-region: ${{ env.AWS_REGION }}
+  #   
+  #   - name: Update kubeconfig
+  #     run: |
+  #       aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+  #   
+  #   - name: Deploy Zabbix
+  #     run: |
+  #       kubectl apply -f k8s/zabbix/
+  #   
+  #   - name: Deploy Clients
+  #     run: |
+  #       kubectl apply -f k8s/cliente-a/
+  #       kubectl apply -f k8s/cliente-b/
+  #       kubectl apply -f k8s/cliente-c/
+  #   
+  #   - name: Deploy Monitoring
+  #     run: |
+  #       kubectl apply -f k8s/monitoring/
+  #   
+  #   - name: Verify deployments
+  #     run: |
+  #       kubectl get pods -A
+  #       kubectl get ingress -A
+
+# To enable this workflow:
+# 1. Uncomment all jobs above
+# 2. Configure GitHub Secrets:
+#    - AWS_ACCESS_KEY_ID
+#    - AWS_SECRET_ACCESS_KEY
+# 3. Update environment variables
+# 4. Configure GitHub Environments (dev, staging, production)
