@@ -67,8 +67,9 @@ jobs:
   # ───────────────────────────────────────────────────────────
   # JOB 2 — KUBERNETES MANIFESTS VALIDATION
   # ───────────────────────────────────────────────────────────
-  # Dry-run applies all manifests to catch syntax errors
-  # without connecting to a real cluster
+  # Validates YAML syntax of all Kubernetes manifests using
+  # kubeval — works without a live cluster connection.
+  # kubeval checks manifests against official K8s JSON schemas.
   # ───────────────────────────────────────────────────────────
   kubernetes-validate:
     name: Kubernetes Manifests Validation
@@ -78,25 +79,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup kubectl
-      uses: azure/setup-kubectl@v4
-      with:
-        version: 'v1.31.0'
+    - name: Install kubeval
+      run: |
+        wget -q https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+        tar xf kubeval-linux-amd64.tar.gz
+        sudo mv kubeval /usr/local/bin/
 
-    - name: Validate Zabbix manifests
-      run: kubectl apply -f k8s/zabbix/ --dry-run=client --validate=false
-
-    - name: Validate Cliente A manifests
-      run: kubectl apply -f k8s/cliente-a/ --dry-run=client --validate=false
-
-    - name: Validate Cliente B manifests
-      run: kubectl apply -f k8s/cliente-b/ --dry-run=client --validate=false
-
-    - name: Validate Cliente C manifests
-      run: kubectl apply -f k8s/cliente-c/ --dry-run=client --validate=false
-
-    - name: Validate Monitoring manifests
-      run: kubectl apply -f k8s/monitoring/ --dry-run=client --validate=false
+    - name: Validate all Kubernetes manifests
+      run: |
+        kubeval --strict           --ignore-missing-schemas           k8s/zabbix/*.yaml           k8s/cliente-a/*.yaml           k8s/cliente-b/*.yaml           k8s/cliente-c/*.yaml           k8s/monitoring/*.yaml
 
   # ───────────────────────────────────────────────────────────
   # JOB 3 — PYTHON CODE QUALITY
