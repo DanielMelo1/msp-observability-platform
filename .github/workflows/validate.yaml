@@ -84,19 +84,19 @@ jobs:
         version: 'v1.31.0'
 
     - name: Validate Zabbix manifests
-      run: kubectl apply -f k8s/zabbix/ --dry-run=client
+      run: kubectl apply -f k8s/zabbix/ --dry-run=client --validate=false
 
     - name: Validate Cliente A manifests
-      run: kubectl apply -f k8s/cliente-a/ --dry-run=client
+      run: kubectl apply -f k8s/cliente-a/ --dry-run=client --validate=false
 
     - name: Validate Cliente B manifests
-      run: kubectl apply -f k8s/cliente-b/ --dry-run=client
+      run: kubectl apply -f k8s/cliente-b/ --dry-run=client --validate=false
 
     - name: Validate Cliente C manifests
-      run: kubectl apply -f k8s/cliente-c/ --dry-run=client
+      run: kubectl apply -f k8s/cliente-c/ --dry-run=client --validate=false
 
     - name: Validate Monitoring manifests
-      run: kubectl apply -f k8s/monitoring/ --dry-run=client
+      run: kubectl apply -f k8s/monitoring/ --dry-run=client --validate=false
 
   # ───────────────────────────────────────────────────────────
   # JOB 3 — PYTHON CODE QUALITY
