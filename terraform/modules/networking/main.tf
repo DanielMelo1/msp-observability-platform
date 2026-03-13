@@ -36,7 +36,10 @@ resource "aws_vpc" "main" {
 # ───────────────────────────────────────────────────────────
 resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/aws/vpc/flow-logs/${var.vpc_name}"
-  retention_in_days = 30
+  # 365 days retention — Checkov CKV_AWS_338 requires minimum 1 year
+  retention_in_days = 365
+  # KMS encryption — Checkov CKV_AWS_158
+  kms_key_id        = aws_kms_key.flow_logs.arn
 
   tags = merge(
     var.tags,
@@ -45,6 +48,61 @@ resource "aws_cloudwatch_log_group" "flow_logs" {
       Purpose = "VPC network traffic audit"
     }
   )
+}
+
+# ───────────────────────────────────────────────────────────
+# KMS KEY FOR CLOUDWATCH LOG GROUP ENCRYPTION
+# ───────────────────────────────────────────────────────────
+# Checkov CKV_AWS_158: log group must be encrypted with KMS
+# Checkov CKV2_AWS_64: KMS key must have explicit policy
+# ───────────────────────────────────────────────────────────
+resource "aws_kms_key" "flow_logs" {
+  description             = "KMS key for VPC Flow Logs - ${var.vpc_name}"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::509399596610:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCloudWatchLogs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = merge(
+    var.tags,
+    {
+      Name    = "${var.vpc_name}-flow-logs-key"
+      Purpose = "VPC Flow Logs encryption"
+    }
+  )
+}
+
+resource "aws_kms_alias" "flow_logs" {
+  name          = "alias/${var.vpc_name}-flow-logs"
+  target_key_id = aws_kms_key.flow_logs.key_id
 }
 
 resource "aws_iam_role" "flow_logs" {

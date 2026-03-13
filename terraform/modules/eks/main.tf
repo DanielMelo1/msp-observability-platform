@@ -24,6 +24,39 @@ resource "aws_kms_key" "eks_secrets" {
   deletion_window_in_days = 7
   enable_key_rotation     = true
 
+  # Explicit KMS key policy — Checkov CKV2_AWS_64
+  # Root account retains full access for key management
+  # EKS service can use the key for secrets encryption
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::509399596610:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowEKSSecrets"
+        Effect = "Allow"
+        Principal = {
+          Service = "eks.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
   tags = merge(
     var.tags,
     {
