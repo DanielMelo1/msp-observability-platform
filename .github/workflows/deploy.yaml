@@ -1,104 +1,208 @@
-name: Deploy to EKS
+# ─────────────────────────────────────────────────────────────────────────────
+# DEPLOY PIPELINE — MSP Observability Platform
+# ─────────────────────────────────────────────────────────────────────────────
+# Purpose    : Deploys infrastructure and applications to AWS EKS
+# Trigger    : Manual (workflow_dispatch) with environment selection
+# Security   : OIDC authentication — no static AWS credentials stored anywhere
+# Author     : Daniel Melo
+# Docs       : docs/SECURITY.md
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Pipeline flow:
+#   [1] checkov-gate    → Scans Terraform for security issues (blocks on failure)
+#   [2] terraform-plan  → Shows infrastructure changes before applying
+#   [3] deploy-eks      → Deploys applications to Kubernetes in correct order
+#
+# Required GitHub Secrets:
+#   - None (OIDC eliminates the need for static AWS credentials)
+#
+# Required AWS pre-configuration:
+#   - IAM Role: github-actions-deploy-role
+#   - OIDC Provider configured for github.com
+#   - See docs/SECURITY.md#oidc-configuration for setup guide
+# ─────────────────────────────────────────────────────────────────────────────
 
-# This workflow is commented as a template
-# Uncomment and configure when ready for automated deployments
+name: Deploy to EKS
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy'
+        description: 'Target environment for deployment'
         required: true
         type: choice
         options:
           - dev
-          - staging
-          - production
+          - prod
 
-# Uncomment to enable
-# env:
-#   AWS_REGION: us-east-1
-#   CLUSTER_NAME: msp-observability-dev-cluster
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: msp-observability-dev-cluster
+  AWS_ACCOUNT_ID: 509399596610
 
 jobs:
-  # deploy-infrastructure:
-  #   name: Deploy Infrastructure
-  #   runs-on: ubuntu-latest
-  #   environment: ${{ github.event.inputs.environment }}
-  #   
-  #   steps:
-  #   - name: Checkout code
-  #     uses: actions/checkout@v4
-  #   
-  #   - name: Configure AWS credentials
-  #     uses: aws-actions/configure-aws-credentials@v4
-  #     with:
-  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #       aws-region: ${{ env.AWS_REGION }}
-  #   
-  #   - name: Setup Terraform
-  #     uses: hashicorp/setup-terraform@v3
-  #   
-  #   - name: Terraform Init
-  #     run: |
-  #       cd terraform/environments/${{ github.event.inputs.environment }}
-  #       terraform init
-  #   
-  #   - name: Terraform Plan
-  #     run: |
-  #       cd terraform/environments/${{ github.event.inputs.environment }}
-  #       terraform plan -out=tfplan
-  #   
-  #   - name: Terraform Apply
-  #     run: |
-  #       cd terraform/environments/${{ github.event.inputs.environment }}
-  #       terraform apply -auto-approve tfplan
 
-  # deploy-applications:
-  #   name: Deploy Applications
-  #   runs-on: ubuntu-latest
-  #   needs: deploy-infrastructure
-  #   environment: ${{ github.event.inputs.environment }}
-  #   
-  #   steps:
-  #   - name: Checkout code
-  #     uses: actions/checkout@v4
-  #   
-  #   - name: Configure AWS credentials
-  #     uses: aws-actions/configure-aws-credentials@v4
-  #     with:
-  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #       aws-region: ${{ env.AWS_REGION }}
-  #   
-  #   - name: Update kubeconfig
-  #     run: |
-  #       aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
-  #   
-  #   - name: Deploy Zabbix
-  #     run: |
-  #       kubectl apply -f k8s/zabbix/
-  #   
-  #   - name: Deploy Clients
-  #     run: |
-  #       kubectl apply -f k8s/cliente-a/
-  #       kubectl apply -f k8s/cliente-b/
-  #       kubectl apply -f k8s/cliente-c/
-  #   
-  #   - name: Deploy Monitoring
-  #     run: |
-  #       kubectl apply -f k8s/monitoring/
-  #   
-  #   - name: Verify deployments
-  #     run: |
-  #       kubectl get pods -A
-  #       kubectl get ingress -A
+  # ───────────────────────────────────────────────────────────
+  # JOB 1 — IaC SECURITY GATE
+  # ───────────────────────────────────────────────────────────
+  # Runs Checkov against all Terraform files before any AWS
+  # interaction. If security issues are found, the pipeline
+  # stops here — no infrastructure changes are attempted.
+  #
+  # Why first: fail fast principle. Catching IaC security
+  # issues early avoids wasted AWS API calls and prevents
+  # misconfigured infrastructure from reaching any environment.
+  # ───────────────────────────────────────────────────────────
+  checkov-gate:
+    name: IaC Security Scan (Checkov)
+    runs-on: ubuntu-latest
 
-# To enable this workflow:
-# 1. Uncomment all jobs above
-# 2. Configure GitHub Secrets:
-#    - AWS_ACCESS_KEY_ID
-#    - AWS_SECRET_ACCESS_KEY
-# 3. Update environment variables
-# 4. Configure GitHub Environments (dev, staging, production)
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Checkov on Terraform
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: terraform/
+        framework: terraform
+        # soft_fail: false means pipeline BLOCKS on any HIGH/CRITICAL finding
+        # Do NOT change to true in production environments
+        soft_fail: false
+        output_format: cli
+
+  # ───────────────────────────────────────────────────────────
+  # JOB 2 — TERRAFORM PLAN
+  # ───────────────────────────────────────────────────────────
+  # Shows exactly what infrastructure changes will happen
+  # before any apply. Engineers and reviewers can validate
+  # the plan output in the GitHub Actions summary.
+  #
+  # Authentication: OIDC — GitHub requests a temporary token
+  # from AWS IAM. No static credentials stored anywhere.
+  # Token expires automatically after the job completes.
+  # ───────────────────────────────────────────────────────────
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: checkov-gate
+    environment: ${{ github.event.inputs.environment }}
+
+    permissions:
+      id-token: write  # Required for OIDC token request
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        # OIDC: AWS issues temporary credentials valid only for this job
+        # Requires IAM Role pre-configured with GitHub OIDC trust policy
+        # Setup guide: docs/SECURITY.md#oidc-configuration
+        role-to-assume: arn:aws:iam::509399596610:role/github-actions-deploy-role
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.9.0
+
+    - name: Terraform Init
+      run: |
+        cd terraform/environments/dev
+        terraform init
+
+    - name: Terraform Plan
+      run: |
+        cd terraform/environments/dev
+        terraform plan -out=tfplan
+
+    - name: Publish plan summary
+      run: |
+        echo "### Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Cluster | ${{ env.CLUSTER_NAME }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Region | ${{ env.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ───────────────────────────────────────────────────────────
+  # JOB 3 — DEPLOY TO EKS
+  # ───────────────────────────────────────────────────────────
+  # Applies Kubernetes manifests to the EKS cluster in the
+  # correct dependency order:
+  #   1. Zabbix     — monitoring stack must be available first
+  #   2. Cliente A  — e-commerce (SLA 99%)
+  #   3. Cliente B  — fintech (SLA 99.99%) — most critical
+  #   4. Cliente C  — SaaS B2B (SLA 99.5%)
+  #   5. Monitoring — webhook handler depends on clients
+  #
+  # Production deployments require manual approval configured
+  # in GitHub Environments settings.
+  # ───────────────────────────────────────────────────────────
+  deploy-eks:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment: ${{ github.event.inputs.environment }}
+
+    permissions:
+      id-token: write  # Required for OIDC token request
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::509399596610:role/github-actions-deploy-role
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --region ${{ env.AWS_REGION }} \
+          --name ${{ env.CLUSTER_NAME }}
+
+    # Deploy order matters — monitoring stack before client apps
+    - name: Deploy Zabbix monitoring stack
+      run: kubectl apply -f k8s/zabbix/
+
+    - name: Deploy Cliente A (E-commerce, SLA 99%)
+      run: kubectl apply -f k8s/cliente-a/
+
+    - name: Deploy Cliente B (Fintech, SLA 99.99%)
+      run: kubectl apply -f k8s/cliente-b/
+
+    - name: Deploy Cliente C (SaaS B2B, SLA 99.5%)
+      run: kubectl apply -f k8s/cliente-c/
+
+    # Webhook handler deployed last — depends on client namespaces
+    - name: Deploy Monitoring webhook handler
+      run: kubectl apply -f k8s/monitoring/
+
+    - name: Verify all deployments are healthy
+      run: |
+        echo "Waiting for deployments to stabilize..."
+        kubectl rollout status deployment -n cliente-a --timeout=120s
+        kubectl rollout status deployment -n cliente-b --timeout=120s
+        kubectl rollout status deployment -n cliente-c --timeout=120s
+
+    - name: Publish deploy summary
+      run: |
+        echo "### Deploy Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Cluster | ${{ env.CLUSTER_NAME }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Deployed by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Timestamp | $(date -u) |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Pod Status" >> $GITHUB_STEP_SUMMARY
+        kubectl get pods -A --no-headers | awk '{print "| " $1 " | " $2 " | " $4 " |"}' >> $GITHUB_STEP_SUMMARY
