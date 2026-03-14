@@ -200,7 +200,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Run Trivy filesystem scan
+    - name: Run Trivy filesystem scan (table output for logs)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: fs
+        scan-ref: .
+        format: table
+        exit-code: '0'
+        severity: CRITICAL,HIGH
+
+    - name: Run Trivy filesystem scan (SARIF for GitHub Security)
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: fs
