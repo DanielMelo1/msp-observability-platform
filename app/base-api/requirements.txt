@@ -1,9 +1,11 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-gunicorn==21.2.0
+# Updated from 21.2.0 — fixes CVE-2024-1135 and CVE-2024-6827 (HTTP Request Smuggling)
+gunicorn==22.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 prometheus-client==0.19.0
-python-multipart==0.0.6
+# Updated from 0.0.6 — fixes CVE-2024-24762, CVE-2024-53981, CVE-2026-24486 (DoS and path traversal)
+python-multipart==0.0.22
