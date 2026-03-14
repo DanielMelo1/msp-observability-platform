@@ -304,11 +304,18 @@ jobs:
         echo "| Trivy (CVE) | ${{ needs.trivy-scan.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| OWASP ZAP (DAST) | ${{ needs.owasp-zap-scan.result }} (informational) |" >> $GITHUB_STEP_SUMMARY
 
-        if [[ "${{ needs.checkov-scan.result }}" == "failure" || "${{ needs.trivy-scan.result }}" == "failure" ]]; then
+        CHECKOV="${{ needs.checkov-scan.result }}"
+        TRIVY="${{ needs.trivy-scan.result }}"
+        ZAP="${{ needs.owasp-zap-scan.result }}"
+
+        if [[ "$CHECKOV" == "failure" || "$TRIVY" == "failure" ]]; then
           echo "### ❌ Security Gate FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "Critical vulnerabilities found. Review artifacts before proceeding." >> $GITHUB_STEP_SUMMARY
+          echo "Blocking scan failed — fix before deploying." >> $GITHUB_STEP_SUMMARY
           exit 1
         else
           echo "### ✅ Security Gate PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "All blocking scans passed. Safe to proceed with deployment." >> $GITHUB_STEP_SUMMARY
+          echo "All blocking scans passed. Safe to proceed." >> $GITHUB_STEP_SUMMARY
+          if [[ "$ZAP" == "failure" ]]; then
+            echo "> ⚠️ OWASP ZAP failed (informational only — review zap-report artifact)" >> $GITHUB_STEP_SUMMARY
+          fi
         fi
