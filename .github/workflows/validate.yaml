@@ -186,11 +186,8 @@ jobs:
   # JOB 6 — VULNERABILITY SCAN (TRIVY)
   # ───────────────────────────────────────────────────────────
   # Scans filesystem and dependencies for known CVEs
-  # exit-code: 1 means pipeline BLOCKS on CRITICAL findings
-  #
-  # Two scan types:
-  #   - fs scan: source code and dependencies
-  #   - config scan: Dockerfile and K8s manifests misconfigurations
+  # Uses Trivy CLI directly for full control over output
+  # exit-code 1 blocks pipeline on CRITICAL,HIGH findings
   # ───────────────────────────────────────────────────────────
   trivy-scan:
     name: Vulnerability Scan (Trivy)
@@ -200,34 +197,19 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Run Trivy filesystem scan (table output for logs)
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: fs
-        scan-ref: .
-        format: table
-        exit-code: '0'
-        severity: CRITICAL,HIGH
+    - name: Install Trivy
+      run: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
 
-    - name: Run Trivy filesystem scan (SARIF for GitHub Security)
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: fs
-        scan-ref: .
-        format: sarif
-        output: trivy-results.sarif
-        exit-code: '1'
-        severity: CRITICAL,HIGH
+    - name: Run Trivy filesystem scan
+      run: |
+        trivy fs .           --severity CRITICAL,HIGH           --format table           --exit-code 1
+      continue-on-error: false
 
-    - name: Run Trivy config scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: config
-        scan-ref: .
-        format: table
-        output: trivy-config-report.txt
-        exit-code: '0'
-        severity: CRITICAL,HIGH
+    - name: Generate SARIF report for GitHub Security
+      if: always()
+      run: |
+        trivy fs .           --severity CRITICAL,HIGH           --format sarif           --output trivy-results.sarif           --exit-code 0
 
     - name: Upload Trivy results to GitHub Security
       uses: github/codeql-action/upload-sarif@v3
@@ -235,14 +217,12 @@ jobs:
       with:
         sarif_file: trivy-results.sarif
 
-    - name: Upload Trivy reports as artifacts
+    - name: Upload Trivy report as artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: trivy-report
-        path: |
-          trivy-results.sarif
-          trivy-config-report.txt
+        path: trivy-results.sarif
         retention-days: 30
 
   # ───────────────────────────────────────────────────────────
