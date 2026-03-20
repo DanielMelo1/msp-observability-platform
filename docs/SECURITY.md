@@ -10,6 +10,8 @@ The principle is simple: **the earlier a security issue is found, the cheaper it
 
 ## Security Pipeline
 
+![Security Pipeline Architecture](architecture/security-pipeline.png)
+
 Every pull request and push to main triggers the full security pipeline:
 ```
 Developer pushes code
